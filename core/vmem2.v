@@ -20,10 +20,14 @@ module vmem2 #(
     input  wire signed [DW-1:0] wdata_b,
     output reg  signed [DW-1:0] rdata_b
 );
+    // XST true-dual-port BRAM template: one always block PER PORT on the shared array.
+    // (Both ports in a single block makes XST fall back to flip-flops, not block RAM.)
     (* ram_style = "block" *) reg signed [DW-1:0] mem [0:(1<<AW)-1];
-    always @(posedge clk) begin
+    always @(posedge clk) begin                 // port A
         if (we_a) mem[addr_a] <= wdata_a;
         rdata_a <= mem[addr_a];
+    end
+    always @(posedge clk) begin                 // port B
         if (we_b) mem[addr_b] <= wdata_b;
         rdata_b <= mem[addr_b];
     end
