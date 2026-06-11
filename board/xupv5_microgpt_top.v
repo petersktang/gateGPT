@@ -24,17 +24,17 @@ module xupv5_microgpt_top (
     output wire        lcd_e,
     output wire [3:0]  lcd_db        // DB[7:4]
 );
-    localparam integer CLK_HZ = 60_000_000;   // core runs at DCM CLKFX (100*3/5) = 60 MHz
+    localparam integer CLK_HZ = 70_000_000;   // core runs at DCM CLKFX (100*7/10) = 70 MHz
 
-    // ---------------- clocking: 100 MHz osc -> DCM CLKFX (x3/5) -> 60 MHz core ------
-    // After the block-RAM + pipeline rework the core is ~75 MHz post-synth; clock it
-    // at 60 MHz (CLKFX 3/5, 16.7 ns) with post-PAR margin. CLK0 is the DCM feedback.
+    // ---------------- clocking: 100 MHz osc -> DCM CLKFX (x7/10) -> 70 MHz core -----
+    // After the block-RAM + pipeline rework the core is ~75 MHz post-synth; it closes
+    // post-PAR at 70.3 MHz (14.217 ns, 0 timing errors). CLK0 is the DCM feedback.
     wire clk100_g, clk0, clk0_g, clkfx, clk, dcm_locked;
     IBUFG u_ibufg (.I(clk_100), .O(clk100_g));
     DCM_BASE #(
         .CLKIN_PERIOD(10.0),
-        .CLKFX_MULTIPLY(3),      // CLKFX = 100 MHz * 3/5 = 60 MHz
-        .CLKFX_DIVIDE(5)
+        .CLKFX_MULTIPLY(7),      // CLKFX = 100 MHz * 7/10 = 70 MHz
+        .CLKFX_DIVIDE(10)
     ) u_dcm (
         .CLKIN(clk100_g), .CLKFB(clk0_g), .RST(rst_btn),
         .CLK0(clk0), .CLKFX(clkfx),
@@ -43,7 +43,7 @@ module xupv5_microgpt_top (
         .LOCKED(dcm_locked)
     );
     BUFG u_bufg0  (.I(clk0),  .O(clk0_g));   // CLK0 feedback (DCM deskew/lock)
-    BUFG u_bufgfx (.I(clkfx), .O(clk));      // core clock = CLKFX = 60 MHz
+    BUFG u_bufgfx (.I(clkfx), .O(clk));      // core clock = CLKFX = 70 MHz
 
     // ---------------- reset button: sync + debounce -------------------------------
     // rst_btn bounces on press/release; require the level stable for RST_FILTER
@@ -201,7 +201,7 @@ module xupv5_microgpt_top (
     reg [25:0] hb_cnt = 26'd0;
     reg        hb     = 1'b0;
     always @(posedge clk) begin
-        if (hb_cnt >= 26'd29_999_999) begin hb_cnt <= 26'd0; hb <= ~hb; end   // 0.5 s @ 60 MHz
+        if (hb_cnt >= 26'd34_999_999) begin hb_cnt <= 26'd0; hb <= ~hb; end   // 0.5 s @ 70 MHz
         else                                hb_cnt <= hb_cnt + 26'd1;
     end
     assign led = {hb, gen_busy, 1'b0, speed_level};
