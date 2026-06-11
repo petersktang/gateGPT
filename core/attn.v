@@ -42,6 +42,11 @@ module attn #(
     reg signed [15:0] mmax;
     reg [31:0]        sum_e;
     reg signed [47:0] acc;
+    // pipeline stage 2 of scoring: the completed dot product is registered, then the
+    // scale (2nd multiply + saturates) and the max-compare run the next cycle.
+    reg signed [47:0] dot_raw;
+    reg [4:0]         dot_s;
+    reg               dot_vld;
 
     // address presented this cycle (registered into vmem -> data next cycle)
     always @(*) begin
@@ -92,7 +97,7 @@ module attn #(
             ph <= P_IDLE; busy <= 0; done <= 0; v_we <= 0; d_start <= 0;
             feeding <= 0; vld <= 0;
         end else begin
-            done <= 0; v_we <= 0; d_start <= 0;
+            done <= 0; v_we <= 0; d_start <= 0; dot_vld <= 0;
             s_d <= s; d_d <= d; vld <= feeding;
             case (ph)
                 P_IDLE: if (start) begin
@@ -110,11 +115,17 @@ module attn #(
                     end
                 end
                 P_SCORE: begin
+                    // stage 2: finalize the registered dot product (scale + max compare)
+                    if (dot_vld) begin
+                        score[dot_s[3:0]] <= scale_score(dot_raw);
+                        if (scale_score(dot_raw) > mmax) mmax <= scale_score(dot_raw);
+                        if (dot_s == BLOCK - 1) begin s <= 0; sum_e <= 0; ph <= P_EXP; end
+                    end
+                    // stage 1: MAC q.k; register the completed dot product
                     if (vld) begin
                         acc <= kacc;
                         if (d_d == HEAD_DIM - 1) begin
-                            score[s_d[3:0]] <= scale_score(kacc);
-                            if (scale_score(kacc) > mmax) mmax <= scale_score(kacc);
+                            dot_raw <= kacc; dot_s <= s_d; dot_vld <= 1'b1;
                         end
                     end
                     if (feeding) begin
@@ -123,9 +134,6 @@ module attn #(
                             if (s == BLOCK - 1) feeding <= 0;
                             else begin s <= s + 1; soff <= soff + N_EMBED; end
                         end else d <= d + 1;
-                    end
-                    if (vld && s_d == BLOCK - 1 && d_d == HEAD_DIM - 1) begin
-                        s <= 0; sum_e <= 0; ph <= P_EXP;
                     end
                 end
                 P_EXP: begin

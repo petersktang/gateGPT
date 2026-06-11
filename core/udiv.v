@@ -11,7 +11,8 @@ module udiv #(
     input  wire [W-1:0] den,
     output reg          busy,
     output reg          done,
-    output reg  [W-1:0] quo
+    output reg  [W-1:0] quo,
+    output reg  [W-1:0] rem_out      // num mod den (valid with done)
 );
     reg [W-1:0]  ncur, q, dreg;
     reg [W:0]    rem;
@@ -39,6 +40,7 @@ module udiv #(
                 ncur <= {ncur[W-2:0], 1'b0};
                 if (cnt == 0) begin
                     quo <= {q[W-2:0], qbit};
+                    rem_out <= remn[W-1:0];          // final remainder
                     busy <= 1'b0; done <= 1'b1; st <= 1'b0;
                 end else cnt <= cnt - 8'd1;
             end

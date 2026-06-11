@@ -44,13 +44,14 @@ module sampler #(
     wire signed [15:0] eo;
     exp_unit u_exp (.z(dz), .e(eo));
 
-    // modulo via udiv: q = rng/total, r = rng - q*total
+    // modulo via udiv: the divider already produces the remainder (rng mod total),
+    // so no separate q*total multiply is needed.
     reg         d_start;
     wire        d_done;
-    wire [47:0] d_quo;
+    wire [47:0] d_quo, d_rem;
     udiv #(.W(48)) u_div (.clk(clk), .resetn(resetn), .start(d_start),
-        .num({16'd0, rngs}), .den({16'd0, total}), .busy(), .done(d_done), .quo(d_quo));
-    wire [31:0] rmod = rngs - (d_quo[31:0] * total);
+        .num({16'd0, rngs}), .den({16'd0, total}), .busy(), .done(d_done),
+        .quo(d_quo), .rem_out(d_rem));
 
     always @(posedge clk) begin
         if (!resetn) begin
@@ -91,7 +92,7 @@ module sampler #(
                 S_MOD: begin
                     if (!d_start && !d_done) d_start <= 1;
                     if (d_done) begin
-                        rval <= rmod; rng_out <= rngs;
+                        rval <= d_rem[31:0]; rng_out <= rngs;
                         cum <= 0; i <= 0; token <= VOCAB - 1; st <= S_PICK;
                     end
                 end
