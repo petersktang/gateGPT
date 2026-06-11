@@ -31,6 +31,24 @@ _ngo/
 *.xpi
 *.stx
 
+# more ISE project/report artifacts
+*.gise
+*.ngr
+*.prj
+*.twx
+*.ut
+*.xst
+*.bgn
+*.xwbt
+*.map
+*.ngm
+*_pad.csv
+*_pad.txt
+webtalk*.xml
+*_summary.xml
+*_usage.xml
+/syn/
+
 # iSim compiled binaries / waveform dumps
 sim/*_sim
 *.wdb
