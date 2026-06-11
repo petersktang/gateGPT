@@ -25,13 +25,19 @@ module tb_core;
 
     // measure cycles per token (core start -> done)
     integer cyc = 0; reg counting = 0; integer reported = 0;
+    integer tot_cyc = 0, tot_tok = 0;
     always @(posedge clk) begin
         if (start && !counting) begin counting <= 1; cyc <= 0; end
         else if (counting) cyc <= cyc + 1;
         if (done && counting) begin
             if (reported == 0) $display("CYCLES_PER_TOKEN = %0d", cyc);
+            tot_cyc = tot_cyc + cyc; tot_tok = tot_tok + 1;
             reported <= reported + 1; counting <= 0;
         end
+    end
+    initial begin : prof
+        wait (reported >= 12);
+        $display("AVG_CYCLES = %0d over %0d tokens (last=%0d)", tot_cyc / tot_tok, tot_tok, cyc);
     end
 
     // expected sequences (absolute-position model): greedy "alaya", sampled "rosphod"
