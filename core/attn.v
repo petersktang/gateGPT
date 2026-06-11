@@ -2,8 +2,10 @@
 // read-ahead). Per head: load the query slice, score = scale*(q.k), softmax via
 // max-subtract + exp + sum, output = sum(e*v)/sum(e) (truncating divide). Each vmem
 // read loop presents the address one cycle before consuming the data; a delayed index
-// (x_d) tags which element the just-arrived data belongs to. Bit-exact with
-// QModel.attn_debug.
+// (x_d) tags which element the just-arrived data belongs to. The HEAD_DIM output
+// components of a head all divide by the same softmax sum, so their numerators are
+// accumulated first and then divided CONCURRENTLY by HEAD_DIM parallel dividers (one
+// divide latency per head instead of one per component). Bit-exact with QModel.attn_debug.
 module attn #(
     parameter integer N_EMBED  = 24,
     parameter integer N_HEAD   = 4,
@@ -28,7 +30,7 @@ module attn #(
     output reg         busy,
     output reg         done
 );
-    localparam [3:0] P_IDLE=0, P_QLOAD=1, P_SCORE=2, P_EXP=3, P_WSUM=4, P_WDIV=5, P_NEXTH=6;
+    localparam [3:0] P_IDLE=0, P_QLOAD=1, P_SCORE=2, P_EXP=3, P_WSUM=4, P_WDIV=5, P_WWB=6, P_NEXTH=7;
     reg [3:0]  ph;
     reg [3:0]  h;
     reg [9:0]  hbase;
@@ -77,15 +79,22 @@ module attn #(
     wire signed [15:0] eo;
     exp_unit u_exp (.clk(clk), .z(dz), .e(eo));
 
-    // weighted-sum divide: |acc| / sum_e, sign of acc
-    reg         d_start;
-    wire        d_done;  wire [47:0] d_quo;
-    wire [47:0] num_abs = acc[47] ? (~acc + 48'd1) : acc;
-    udiv #(.W(48)) u_div (.clk(clk), .resetn(resetn), .start(d_start),
-        .num(num_abs), .den({31'd0, sum_e[16:0]}), .busy(), .done(d_done), .quo(d_quo));
-    wire signed [47:0] q_signed = acc[47] ? -$signed(d_quo) : $signed(d_quo);
-    wire signed [15:0] o_sat =
-        (q_signed > 48'sd32767) ? 16'sd32767 : (q_signed < -48'sd32768) ? -16'sd32768 : q_signed[15:0];
+    // weighted-sum divide: the HEAD_DIM numerators of a head share the denominator sum_e,
+    // so divide them all CONCURRENTLY -- one divide latency per head, not per component.
+    reg signed [47:0] num [0:HEAD_DIM-1];      // accumulated numerator per output component
+    reg               d_start;                 // shared start pulse for all dividers
+    wire [HEAD_DIM-1:0] dv_done;
+    wire signed [15:0]  o_sat_arr [0:HEAD_DIM-1];
+    genvar gi;
+    generate for (gi = 0; gi < HEAD_DIM; gi = gi + 1) begin : DIVS
+        wire [47:0] na  = num[gi][47] ? (~num[gi] + 48'd1) : num[gi];
+        wire [47:0] quo;
+        udiv #(.W(48)) u_div (.clk(clk), .resetn(resetn), .start(d_start),
+            .num(na), .den({31'd0, sum_e[16:0]}), .busy(), .done(dv_done[gi]), .quo(quo));
+        wire signed [47:0] qs = num[gi][47] ? -$signed(quo) : $signed(quo);
+        assign o_sat_arr[gi] =
+            (qs > 48'sd32767) ? 16'sd32767 : (qs < -48'sd32768) ? -16'sd32768 : qs[15:0];
+    end endgenerate
 
     // MAC terms from the just-arrived data
     wire signed [47:0] kprod = $signed(qreg[d_d[2:0]]) * $signed(v_rdata);          // q.k
@@ -151,19 +160,28 @@ module attn #(
                     end
                 end
                 P_WSUM: begin
+                    // accumulate the numerator for component d; sweep s over the context
                     if (vld) begin
                         acc <= vacc;
-                        if (s_d == ctx_len - 1) begin d_start <= 1; feeding <= 0; ph <= P_WDIV; end
+                        if (s_d == ctx_len - 1) begin
+                            num[d] <= vacc;                       // numerator for this component
+                            if (d == HEAD_DIM - 1) begin
+                                d_start <= 1; feeding <= 0; ph <= P_WDIV;   // fire all dividers
+                            end else begin
+                                d <= d + 1; s <= 0; soff <= 0; acc <= 0; feeding <= 1;
+                            end
+                        end
                     end
                     if (feeding) begin
                         if (s == ctx_len - 1) feeding <= 0;
                         else begin s <= s + 1; soff <= soff + N_EMBED; end
                     end
                 end
-                P_WDIV: if (d_done) begin
-                    v_we <= 1; v_waddr <= o_base + hbase + {5'd0, d}; v_wdata <= o_sat;
+                P_WDIV: if (dv_done[0]) begin d <= 0; ph <= P_WWB; end
+                P_WWB: begin
+                    v_we <= 1; v_waddr <= o_base + hbase + {5'd0, d}; v_wdata <= o_sat_arr[d];
                     if (d == HEAD_DIM - 1) ph <= P_NEXTH;
-                    else begin d <= d + 1; s <= 0; soff <= 0; acc <= 0; feeding <= 1; ph <= P_WSUM; end
+                    else d <= d + 1;
                 end
                 P_NEXTH: begin
                     if (h == N_HEAD - 1) begin busy <= 0; done <= 1; ph <= P_IDLE; end
