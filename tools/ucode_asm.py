@@ -68,6 +68,19 @@ def main():
     with open(os.path.join(ROOT, "generated", "ucode.hex"), "w") as f:
         for w in prog:
             f.write(f"{w & ((1 << 72) - 1):018x}\n")
+    # microcode ROM as a combinational case (NOT $readmemh): XST 14.7 ties small
+    # $readmemh distributed ROMs to zero, which left the program as all-NOP on the
+    # board -> the sequencer never reached HALT and the core hung. Explicit case
+    # constants synthesize into LUTs reliably (same trick as core/gains.vh).
+    with open(os.path.join(ROOT, "core", "ucode_rom.vh"), "w") as f:
+        f.write("// Auto-generated microcode ROM (combinational). Do not edit by hand.\n")
+        f.write("function [71:0] ucode_rom;\n")
+        f.write("    input [7:0] pc;\n")
+        f.write("    case (pc)\n")
+        for i, w in enumerate(prog):
+            f.write(f"        8'd{i}: ucode_rom = 72'h{w & ((1 << 72) - 1):018x};\n")
+        f.write("        default: ucode_rom = 72'h000000000000000008;  // OP_HALT (safe stop)\n")
+        f.write("    endcase\nendfunction\n")
     with open(os.path.join(ROOT, "core", "coremap.vh"), "w") as f:
         f.write("// Auto-generated memory map + opcodes. Do not edit.\n")
         f.write(f"localparam integer NINSTR = {len(prog)};\n")
