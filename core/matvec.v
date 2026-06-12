@@ -41,8 +41,8 @@ module matvec #(
     localparam [6:0] LANES_W = LANES;
     reg [1:0]  st;
     reg [6:0]  fi;                    // column-pair (feed) index within the current tile
-    reg [6:0]  obase;                 // first output row of the current tile = tile*LANES
-    reg [11:0] wbase;                 // first word of the current tile = tile*(in_dim/2)
+    (* keep = "true" *) reg [6:0]  obase;   // first output row of the current tile = tile*LANES
+    (* keep = "true" *) reg [11:0] wbase;   // first word of the current tile = tile*(in_dim/2)
     reg [6:0]  wbi;                   // writeback row index within the tile (advances by 2)
     reg        feeding, vld, vld2;
     reg [1:0]  dcnt;                  // drain counter (flush the 2-stage operand pipeline)
