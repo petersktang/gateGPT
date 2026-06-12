@@ -18,7 +18,7 @@ project set package "ff1136"
 project set speed   "-1"
 
 # --- fuentes RTL del core INDEPENDIENTE (microcode-ROM + actuadores datapath) ---
-xfile add $base/core/vmem.v
+xfile add $base/core/vmem2.v
 xfile add $base/core/wrom.v
 xfile add $base/core/grom.v
 xfile add $base/core/udiv.v
