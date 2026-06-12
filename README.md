@@ -1,15 +1,19 @@
-# microGPT-FPGA
+# gateGPT
 
-A character-level transformer that generates names, implemented **from scratch** for the
-**Xilinx Virtex-5 XC5VLX110T** (XUPV5 / ML509 board, ISE 14.7, Verilog-2001). The model is
-trained in Python, quantized to fixed point, and run entirely in hardware; generated names
-scroll on the board's character LCD, and a rotary encoder sets the generation speed and the
-sampling temperature.
+**gateGPT** is a hardware (RTL) implementation of [Andrej Karpathy's nanoGPT](https://github.com/karpathy/nanoGPT)
+— a small character-level GPT — running entirely on a **Xilinx Virtex-5** FPGA (XC5VLX110T, XUPV5 /
+ML509 board, ISE 14.7, Verilog-2001), here trained to generate names. The model (one transformer
+block: RMSNorm → multi-head causal attention → MLP, in Q5.11 fixed point) executes as a
+**microcode-ROM sequencer** driving modular datapath actuators over a shared dual-port scratchpad;
+**incremental decoding with a persistent KV cache** computes only the new token's K/V each step and
+attends over the cached context, instead of recomputing the whole window. It generates names on the
+board's character LCD at **around 50,000 tokens/second at 80 MHz**, while a rotary encoder sets the
+generation speed and the sampling temperature.
 
-This is an independent design: the RTL, the fixed-point spec, the microcode ISA, and the
-weights are all our own. The headline result is a **28× throughput improvement** over the
-first working version — from ~2.4k to **~69k tokens/second at 80 MHz**, all bit-exact and
-confirmed generating names on the board at 80 MHz (closing timing post place-and-route).
+This is an independent design — the RTL, the fixed-point spec, the microcode ISA, and the trained
+weights are all our own. Throughput improved **28×** over the first working version (from ~2.4k to
+**~50–69k tokens/second**, depending on context length), all bit-exact to a Python reference and
+confirmed generating names on the board (closing timing post place-and-route at 80 MHz).
 
 ---
 
