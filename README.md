@@ -130,6 +130,24 @@ Full board (inference core + LCD driver + rotary control + tok/s meter + DCM) on
 else is comfortable (≤31%). The activation scratchpad + KV cache fit in a single dual-port Block RAM;
 the weight/embedding/microcode ROMs are LUT-baked constants (see the bring-up note below).
 
+### Logic-gate estimate
+
+FPGA resources don't map 1:1 to ASIC gates, but converting each primitive to **2-input-NAND
+equivalents** (factors in parentheses) puts the whole design's complexity in perspective:
+
+| Element | Count | × gates/elem | Gate-equiv |
+|---|---:|---:|---:|
+| Logic LUT6 | 16,427 | × 12 | ~197,000 |
+| Flip-flops | 5,530 | × 6 | ~33,000 |
+| DSP48E (as a 16×16 MAC) | 62 | × 3,500 | ~217,000 |
+| **Total logic** | | | **≈ 450,000 (~0.45 M) gates** |
+| Block RAM (SRAM) | 2 × 36 Kb | (memory) | ~74 Kbit on-chip |
+
+So the active design is on the order of **~0.45 million NAND2-equivalent gates** — the LUT fabric and
+the DSP multipliers each contribute about half — plus ~74 Kbit of on-chip SRAM (the activation
+scratchpad + KV cache). This is a *rough* figure: LUT- and DSP-to-gate conversions vary by roughly
+±2×, and FPGA logic doesn't translate cleanly to a standard-cell count.
+
 ---
 
 ## Key engineering lessons
