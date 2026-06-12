@@ -15,18 +15,16 @@ module embed #(
     output reg         busy,
     output reg         done
 );
-    (* rom_style="distributed" *) reg signed [15:0] tok  [0:647];   // 27 x 24
-    (* rom_style="distributed" *) reg signed [15:0] posr [0:383];   // 16 x 24
-    initial begin
-        $readmemh("/home/hermes/microgpt_fpga/generated/tok_embed.hex", tok);
-        $readmemh("/home/hermes/microgpt_fpga/generated/pos_embed.hex", posr);
-    end
+    // Embedding ROMs as combinational case functions (NOT $readmemh: XST 14.7 zeroes
+    // small $readmemh distributed ROMs). tok = 27x24, pos = 16x24, row-major.
+`include "/home/hermes/microgpt_fpga/core/tok_emb.vh"
+`include "/home/hermes/microgpt_fpga/core/pos_emb.vh"
 
     reg [6:0]  i;
     reg [9:0]  tbase, pbase;
     reg        st;
 
-    wire signed [16:0] sum = $signed(tok[tbase + i]) + $signed(posr[pbase + i]);
+    wire signed [16:0] sum = $signed(tok_emb(tbase + {3'd0, i})) + $signed(pos_emb(pbase + {3'd0, i}));
     wire signed [15:0] esat =
         (sum >  17'sd32767) ? 16'sd32767 : (sum < -17'sd32768) ? -16'sd32768 : sum[15:0];
 

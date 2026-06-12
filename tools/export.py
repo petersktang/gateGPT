@@ -50,6 +50,49 @@ def write_tiled_hex(name, W, lanes=24):
     return tiles * (in_dim // 2)
 
 
+def _tiled_words(W, lanes=24):
+    """Return the tiled weight ROM as a list of integer words (2*lanes*16 bits each),
+    same packing as write_tiled_hex (col 2j low, col 2j+1 high; lane 0 = LSB)."""
+    W = np.asarray(W)
+    out_dim, in_dim = W.shape
+    tiles = (out_dim + lanes - 1) // lanes
+    words = []
+    for t in range(tiles):
+        for j in range(in_dim // 2):
+            word = 0
+            for slot, col in enumerate((2 * j, 2 * j + 1)):     # slot 0 = low half
+                for lane in range(lanes):
+                    o = t * lanes + lane
+                    val = int(W[o, col]) if o < out_dim else 0
+                    word |= (val & 0xFFFF) << (slot * lanes * 16 + lane * 16)
+            words.append(word)
+    return words
+
+
+def write_func_vh(path, func_name, ret_w, idx_w, values, idx2=None, signed=False):
+    """Emit a combinational ROM as a Verilog function of explicit constants. XST 14.7
+    ties small $readmemh distributed-ROM arrays to zero, so every ROM the core reads
+    (microcode, weights, exp table, embeddings) is emitted this way instead."""
+    nh = (ret_w + 3) // 4
+    sgn = " signed" if signed else ""
+    with open(path, "w") as f:
+        f.write(f"// Auto-generated ROM (combinational case constants). Do not edit by hand.\n")
+        if idx2 is None:
+            f.write(f"function{sgn} [{ret_w-1}:0] {func_name};\n    input [{idx_w-1}:0] idx;\n    case (idx)\n")
+            for i, v in enumerate(values):
+                f.write(f"        {idx_w}'d{i}: {func_name} = {ret_w}'h{v & ((1<<ret_w)-1):0{nh}x};\n")
+            f.write(f"        default: {func_name} = {ret_w}'d0;\n    endcase\nendfunction\n")
+        else:  # two-level: values is dict sel -> list
+            f.write(f"function{sgn} [{ret_w-1}:0] {func_name};\n")
+            f.write(f"    input [{idx2[0]-1}:0] sel;\n    input [{idx_w-1}:0] idx;\n    case (sel)\n")
+            for sel, words in values.items():
+                f.write(f"        {idx2[0]}'d{sel}: case (idx)\n")
+                for i, v in enumerate(words):
+                    f.write(f"            {idx_w}'d{i}: {func_name} = {ret_w}'h{v & ((1<<ret_w)-1):0{nh}x};\n")
+                f.write(f"            default: {func_name} = {ret_w}'d0;\n        endcase\n")
+            f.write(f"        default: {func_name} = {ret_w}'d0;\n    endcase\nendfunction\n")
+
+
 def main():
     os.makedirs(GEN, exist_ok=True)
     cfg = ModelConfig()
@@ -87,6 +130,20 @@ def main():
                 key = (si << 5) | idx
                 f.write(f"        7'd{key}: gain_lut = 16'sh{int(gain[idx]) & 0xFFFF:04x};\n")
         f.write("        default: gain_lut = 16'sd0;\n    endcase\nendfunction\n")
+
+    # Every ROM the core READS is also emitted as a combinational case function, because
+    # XST 14.7 zeroes small $readmemh distributed ROMs (it left the weights/exp/embeddings
+    # at zero on the board -> garbage names). The .hex files above stay for sim/reference.
+    CORE = os.path.join(ROOT, "core")
+    wsel = {0: m.wq, 1: m.wk, 2: m.wv, 3: m.wo, 4: m.fc1, 5: m.fc2, 6: m.lm}
+    wwords = {s: _tiled_words(W) for s, W in wsel.items()}
+    write_func_vh(os.path.join(CORE, "wrom_data.vh"), "wrom_data", 2 * 24 * 16, 12, wwords, idx2=(3,))
+    write_func_vh(os.path.join(CORE, "tok_emb.vh"), "tok_emb", 16, 10,
+                  [int(v) for v in np.asarray(m.tok).reshape(-1)], signed=True)
+    write_func_vh(os.path.join(CORE, "pos_emb.vh"), "pos_emb", 16, 10,
+                  [int(v) for v in np.asarray(m.pos).reshape(-1)], signed=True)
+    write_func_vh(os.path.join(CORE, "exp_data.vh"), "exp_tab_rom", 16, 5,
+                  [int(v) for v in EXP_TAB], signed=True)
 
     # golden for the testbench
     gseed, gtemp = 2, 0.7

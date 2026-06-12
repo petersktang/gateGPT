@@ -11,16 +11,17 @@ module exp_unit (
     input  wire signed [15:0] z,
     output wire signed [15:0] e
 );
-    (* rom_style="distributed" *) reg signed [15:0] tab [0:16];
-    initial $readmemh("/home/hermes/microgpt_fpga/generated/exp_tab.hex", tab);
+    // exp table as a combinational case function (NOT $readmemh: XST 14.7 zeroes small
+    // $readmemh distributed ROMs). 17 entries: exp_tab_rom[k] = round(exp(-k)*2048).
+`include "/home/hermes/microgpt_fpga/core/exp_data.vh"
 
     // stage 1 (combinational): |z|, table lookup, decode
     wire signed [17:0] zx = {{2{z[15]}}, z};
     wire [17:0]        u  = -zx;            // |z| when z<=0  (0..32768)
     wire [4:0]         ui = u[15:11];       // integer part (<=16)
     wire [10:0]        uf = u[10:0];        // fractional part (Q11)
-    wire signed [15:0] lo = tab[ui[4:0]];
-    wire signed [15:0] hi = (ui >= 5'd16) ? 16'sd0 : tab[ui + 5'd1];
+    wire signed [15:0] lo = exp_tab_rom(ui[4:0]);
+    wire signed [15:0] hi = (ui >= 5'd16) ? 16'sd0 : exp_tab_rom(ui[4:0] + 5'd1);
 
     // pipeline register (cut between the ROM lookup and the interpolation multiply)
     reg signed [15:0] lo_r, hi_r;
