@@ -9,7 +9,7 @@ sampling temperature.
 This is an independent design: the RTL, the fixed-point spec, the microcode ISA, and the
 weights are all our own. The headline result is a **28× throughput improvement** over the
 first working version — from ~2.4k to **~69k tokens/second at 80 MHz**, all bit-exact and
-confirmed closing timing post place-and-route on real silicon.
+confirmed generating names on the board at 80 MHz (closing timing post place-and-route).
 
 ---
 
@@ -115,6 +115,29 @@ Resource footprint of the final board build: **15.5k LUT (22%), 5.3k slices (30%
 - **Exact integer arithmetic is free to parallelize.** radix-4 division and split MAC lanes
   preserve the floor-divide / saturating results, so the golden never changes.
 
+### Hardware bring-up: two XST 14.7 bugs that pass simulation but hang the board
+
+The bit-exact iSim golden passed at every step, yet the first board run **hung** (frozen banner,
+`gen_busy` stuck, 0 tok/s) while the rotary/LEDs still worked. Two XST 14.7 synthesis-vs-sim
+divergences were the cause — neither shows up in RTL simulation:
+
+- **`$readmemh` ROMs get tied to zero.** XST silently zeroes small `$readmemh` distributed-ROM
+  arrays (look for `Signal <name> is used but never assigned. Tied to default value` in the `.syr`).
+  This zeroed the **microcode** ROM → the sequencer ran all-NOP, never hit `HALT`, and hung; it
+  also zeroed the weights/exp/embeddings → garbage output. `$readmemb` does **not** help (same
+  mechanism). Fix: emit every ROM the core reads as a **combinational `case` function** (explicit
+  constants XST bakes into LUTs reliably) — see `core/ucode_rom.vh`, `wrom_data.vh`, `tok_emb.vh`,
+  `pos_emb.vh`, `exp_data.vh`, `gains.vh`. Verify the `.syr` "tied to default" list is empty.
+- **A live register can be constant-folded away.** XST trimmed the matvec's tile base `obase` to
+  constant 0 (`has a constant value of 0 ... will be trimmed`), so every **multi-tile** matmul
+  (fc1/lm) looped forever — the core hung at microcode `pc=9` (the fc1 matvec). A `pc`-on-LEDs
+  debug probe localized it. Fix: `(* keep = "true" *)` on `obase`/`wbase`. Also avoid bit-selecting
+  an `integer` parameter (`LANES[6:0]`) — assign it to a sized `localparam` first.
+
+**Takeaway:** post-PAR timing closure ≠ a working design. On XST 14.7, never trust `$readmemh` for
+ROM init (use `case` functions), and treat "constant value / tied to default" warnings as bugs.
+With both fixed, the board generates names correctly at 80 MHz.
+
 ---
 
 ## Layout
@@ -149,6 +172,8 @@ Build the board bitstream (ISE 14.7): `xst → ngdbuild → map → par → trce
 `xupv5_microgpt_top.prj` / `board/xupv5_microgpt.ucf` for part `xc5vlx110t-1-ff1136`.
 
 ## Board
+
+Verified on the XUPV5: names generate and scroll on the LCD at 80 MHz.
 
 - 100 MHz oscillator → DCM CLKFX ×4/5 → **80 MHz** core clock.
 - Names auto-generate; the **rotary encoder** adjusts one of two settings, chosen by
