@@ -1,6 +1,6 @@
 # gateGPT
 
-<video src="https://github.com/fguzman82/gateGPT/raw/main/media/gateGPT_video_final.mp4" controls muted width="100%"></video>
+<video src="https://github.com/user-attachments/assets/1f762090-1945-490e-9a63-43c8818fd41f" controls width="100%"></video>
 
 > 📹 If the player above does not load, [watch the demo video here](media/gateGPT_video_final.mp4).
 
